@@ -1,0 +1,4 @@
+software
+v0.0.0   Date/time:2025-11-19 09:04:52.754131
+Project assembled
+
