@@ -12,6 +12,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.currentSlot = None
+
         self.setWindowTitle("Train-Science LocoNet Tool")
         self.resize(900, 600)
 
@@ -30,9 +32,16 @@ class MainWindow(QMainWindow):
         self.LocoNet = LocoNetSerial()
         self.timer = QTimer()
         self.timer.timeout.connect(self.pollLocoNet)
-        self.timer.start(10)   # elke 10 ms LocoNet checken
+        self.timer.start(10)
+
         self.LocoNet.onAccessory = self.onAccessoryEvent
         self.LocoNet.onSensor    = self.onSensorEvent
+        self.LocoNet.onSlotRead  = self.onSlotRead   # NEW
+
+        self.currentSlot     = 5
+        self.currentAddress  = 5
+        self.acquirePending  = False
+        self.dispatchAddress = None
 
     #-----------------------------------------------------------
     # 0) LOCONET COMMUNICATION
@@ -69,11 +78,6 @@ class MainWindow(QMainWindow):
     # 1) PROGRAMMING TAB
     # ---------------------------------------------------------
 
-    def calcLnChecksum(self, data):
-        chk = 0xFF
-        for b in data:
-            chk ^= b
-        return chk
 
     def updateProgrammingUi(self):
         is_pom = (self.cmbMode.currentIndex() == 1)  # 0=Service, 1=POM
@@ -342,124 +346,392 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------
     # 3) THROTTLE TAB
     # ---------------------------------------------------------
-
-    def onSpeedChanged(self, value):
-        self.speedDisplay.setText(str(value))
-        # hier later: notify throttle, send LocoNet, etc.
+    def ln_checksum(self, data: list[int]) -> int:
+        chk = 0xFF
+        for b in data:
+            chk ^= (b & 0xFF)
+        return chk & 0xFF
 
     def buildThrottleTab(self):
         w = QWidget()
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
 
-        # === SPEED DISPLAY =======================================================
-        speedBox = QLabel("0")
-        speedBox.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        speedBox.setFixedHeight(60)
-        speedBox.setStyleSheet("""
-            font-size: 32px;
-            background: white;
-            border: 2px solid black;
-            border-radius: 6px;
-        """)
-        self.speedDisplay = speedBox
-        layout.addWidget(speedBox)
+        # --- Address row ---
+        addrRow = QHBoxLayout()
+        addrRow.addWidget(QLabel("Address:"))
 
+        self.edtThrottleAddr = QLineEdit()
+        self.edtThrottleAddr.setFixedWidth(80)
+        addrRow.addWidget(self.edtThrottleAddr)
 
-        # === SPEED KNOB + DIRECTION SWITCH =======================================
+        self.lblSlotInfo = QLabel("Slot: - / Status: -")
+        addrRow.addWidget(self.lblSlotInfo)
+
+        self.btnAcquire = QPushButton("Acquire")
+        self.btnAcquire.clicked.connect(self.onAcquireClicked)
+        addrRow.addWidget(self.btnAcquire)
+
+        self.btnDispatch = QPushButton("Dispatch")
+        self.btnDispatch.clicked.connect(self.onDispatchClicked)
+        addrRow.addWidget(self.btnDispatch)
+
+        self.btnGetAddress = QPushButton("Get address")
+        self.btnGetAddress.clicked.connect(self.onGetAddressClicked)
+        addrRow.addWidget(self.btnGetAddress)
+
+        addrRow.addStretch()
+        layout.addLayout(addrRow)
+
+        # --- Speed display ---
+        self.speedDisplay = QLabel("0")
+        self.speedDisplay.setFixedSize(90, 40)
+        self.speedDisplay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.speedDisplay.setStyleSheet(
+            "font-size: 32px; background: white; color: black; border: 2px solid black;"
+        )
+
+        speedRow = QHBoxLayout()
+        speedRow.addStretch()
+        speedRow.addWidget(self.speedDisplay)
+        speedRow.addStretch()
+        layout.addLayout(speedRow)
+
+        # --- Controls row ---
         topRow = QHBoxLayout()
+        topRow.setSpacing(12)
 
-        # F0 button (round)
-        self.btnF0 = QPushButton("F0")
+        self.btnF0 = QPushButton("💡")
         self.btnF0.setCheckable(True)
-        self.btnF0.setFixedSize(50, 50)
-        self.btnF0.setStyleSheet("""
-            QPushButton {
-                border: 2px solid black;
-                border-radius: 25px;
-                background: white;
-                color:black;
-            }
-            QPushButton:checked {
-                background: green;
-                color: black;
-            }
-        """)
+        self.btnF0.setFixedSize(60, 60)
+        self.btnF0.setStyleSheet(
+            "font-size: 26px; border: 2px solid black; border-radius: 30px; background: white;"
+        )
+        self.btnF0.toggled.connect(self.onF0Toggled)
         topRow.addWidget(self.btnF0)
 
+        self.speedSlider = QSlider(Qt.Orientation.Horizontal)
+        self.speedSlider.setRange(0, 127)
+        self.speedSlider.setFixedHeight(40)
+        self.speedSlider.valueChanged.connect(self.onSpeedChanged)
+        topRow.addWidget(self.speedSlider, stretch=1)
 
-        # Speed dial (0–128)
-        speedDial = QDial()
-        speedDial.setRange(0, 128)
-        speedDial.setNotchesVisible(True)
-        speedDial.setFixedSize(150, 150)
-        speedDial.valueChanged.connect(self.onSpeedChanged)
-        self.speedDial = speedDial
-        topRow.addWidget(speedDial)
-
-        # Direction switch (Up/Down)
-        dirFrame = QVBoxLayout()
-
-        dirLabel = QLabel("dir")
-        dirLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dirFrame.addWidget(dirLabel)
-
-        self.dirSwitch = QSlider(Qt.Orientation.Vertical)
-        self.dirSwitch.setMinimum(0)  # 0 = reverse, 1 = forward
-        self.dirSwitch.setMaximum(1)
-        self.dirSwitch.setFixedHeight(100)
-        dirFrame.addWidget(self.dirSwitch)
-
-        topRow.addLayout(dirFrame)
+        self.btnDir = QPushButton("▶")
+        self.btnDir.setCheckable(True)
+        self.btnDir.setFixedSize(80, 60)
+        self.btnDir.setStyleSheet(
+            "font-size: 28px; font-weight: bold; background: #ddd; border: 2px solid black;"
+        )
+        self.btnDir.toggled.connect(self.onDirectionChanged)
+        topRow.addWidget(self.btnDir)
 
         layout.addLayout(topRow)
+        layout.addSpacing(20)
 
-
-        # === RANGE LABELS UNDER THE KNOB =========================================
-        rangeRow = QHBoxLayout()
-        lbl0 = QLabel("0")
-        lbl128 = QLabel("128")
-        lbl0.setStyleSheet("font-size: 18px;")
-        lbl128.setStyleSheet("font-size: 18px;")
-        rangeRow.addWidget(lbl0)
-        rangeRow.addStretch()
-        rangeRow.addWidget(lbl128)
-        layout.addLayout(rangeRow)
-
-
-        # === FUNCTION BUTTON GRID F1..F35 ========================================
+        # --- Function buttons F1–F28 ---
         funcGrid = QGridLayout()
+        funcGrid.setHorizontalSpacing(6)
+        funcGrid.setVerticalSpacing(6)
+
         self.fnButtons = []
 
-        # Styling for round buttons
-        fnStyle = """
-            QPushButton {
-                color: black;
-                border: 2px solid black;
-                border-radius: 20px;
-                background: white;
-                font-size: 14px;
-            }
-            QPushButton:checked {
-                background: green;
-                color: black;
-            }
-        """
-
-        fnNumber = 1
-        for row in range(7):      # 7 rows
-            for col in range(5):  # 5 columns → 7×5 = 35 buttons
-                btn = QPushButton(f"F{fnNumber}")
+        fn = 1
+        for row in range(4):
+            for col in range(7):
+                if fn > 28:
+                    break
+                btn = QPushButton(f"F{fn}")
                 btn.setCheckable(True)
                 btn.setFixedSize(40, 40)
-                btn.setStyleSheet(fnStyle)
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background: white;
+                        color: black;
+                        border: 2px solid black;
+                        border-radius: 20px;
+                        font-size: 14px;
+                    }
+                    QPushButton:checked {
+                        background: green;
+                        color: black;
+                    }
+                """)
+                btn.toggled.connect(lambda checked, n=fn: self.onFnButtonToggled(n, checked))
                 funcGrid.addWidget(btn, row, col)
                 self.fnButtons.append(btn)
-                fnNumber += 1
+                fn += 1
 
-        layout.addLayout(funcGrid)
+        funcRow = QHBoxLayout()
+        funcRow.addStretch()
+        funcRow.addLayout(funcGrid)
+        funcRow.addStretch()
+        layout.addLayout(funcRow)
 
-        w.setLayout(layout)
+        layout.addStretch()
         return w
+
+    # ---------------------------------------------------------
+    # THROTTLE LOGIC
+    # ---------------------------------------------------------
+
+    def onGetAddressClicked(self):
+        txt = self.edtThrottleAddr.text().strip()
+        try:
+            addr = int(txt)
+        except ValueError:
+            return
+
+        if addr <= 0 or addr > 10239:
+            return
+
+        # --- split address per LocoNet spec ---
+        adr_lo = addr & 0x7F
+        adr_hi = (addr >> 7) & 0x7F
+
+        frame = [
+            0xBF,        # OPC_LOCO_ADR
+            adr_hi,
+            adr_lo
+        ]
+
+        chk = self.ln_checksum(frame)
+        self.LocoNet.send(bytes(frame + [chk]))
+
+        # GUI state
+        self.acquirePending = True
+        self.dispatchAddress = None
+
+        print(f"[THROTTLE] Get address request sent for addr {addr}")
+
+
+    def sendExpandedFunctions(self):
+        if self.currentSlot is None:
+            return
+
+        slot = self.currentSlot & 0x7F
+
+        # --- bouw w8 (F13–F19) ---
+        w8 = 0
+        for i in range(7):  # F13..F19
+            if self.fnButtons[12 + i].isChecked():
+                w8 |= (1 << i)
+
+        # --- bouw w9 (F21–F27) ---
+        w9 = 0
+        for i in range(7):  # F21..F27
+            if self.fnButtons[20 + i].isChecked():
+                w9 |= (1 << i)
+
+        # --- overige bytes: voorlopig kopiëren / 0 ---
+        frame = [
+            0xEE,          # OPC_WR_SL_DATA_EXP
+            0x15,          # LEN = 21 bytes totaal
+            0x01,          # MAST# (meestal 1)
+            slot,          # SLOT#
+            0x00,          # w0 Status1
+            self.currentAddress & 0x7F,          # w1 addr low
+            (self.currentAddress >> 7) & 0x7F,   # w2 addr high
+            0x00,          # w3 flags
+            self.speedSlider.value() & 0x7F,        # w4 speed
+            0x00,          # w5 speed steps
+            0x00,          # w6 DIRF
+            0x00,          # w7 F5–F11
+            w8 & 0x7F,     # w8 F13–F19
+            w9 & 0x7F,     # w9 F21–F27
+            0x00,          # w10
+            0x00,          # w11
+            0x00,          # w12
+            0x00,          # w13
+            0x00,          # w14
+            0x00           # w15
+        ]
+
+        chk = self.ln_checksum(frame)
+        self.LocoNet.send(bytes(frame + [chk]))
+
+        print(f"[LN] EXP SLOT WRITE slot={slot} w8={w8:02X} w9={w9:02X}")
+
+    def onAcquireClicked(self):
+        txt = self.edtThrottleAddr.text().strip()
+        try:
+            addr = int(txt)
+        except ValueError:
+            return
+        if addr <= 0 or addr > 10239:
+            return
+
+        self.acquirePending = True
+        self.LocoNet.sendLocoAdrRequest(addr)
+
+    def onDispatchClicked(self):
+        txt = self.edtThrottleAddr.text().strip()
+        try:
+            addr = int(txt)
+        except ValueError:
+            return
+        self.dispatchAddress = addr
+        print(f"[THROTTLE] Dispatch prepared for address {addr}")
+
+    def onSlotRead(self, slot, stat1, addr, speed, dirf, snd):
+        active_bits = (stat1 >> 4) & 0x03
+        if   active_bits == 0b11: status = "IN_USE"
+        elif active_bits == 0b10: status = "IDLE"
+        elif active_bits == 0b01: status = "COMMON"
+        else:                     status = "FREE"
+
+        self.lblSlotInfo.setText(f"Slot: {slot} / {status}")
+
+        txt = self.edtThrottleAddr.text().strip()
+        try:
+            requested = int(txt)
+        except ValueError:
+            requested = None
+
+        if requested is None or requested != addr:
+            return
+
+        # auto acquire on IDLE/COMMON once
+        if self.acquirePending and status in ("IDLE", "COMMON"):
+            self.LocoNet.sendMoveSlots(slot, slot)
+            self.acquirePending = False
+
+        self.currentSlot = slot
+        self.currentAddress = addr
+
+        # update UI from slot data
+        self.speedSlider.blockSignals(True)
+        self.speedSlider.setValue(speed)
+        self.speedSlider.blockSignals(False)
+        self.speedDisplay.setText(str(speed))
+
+        dir_val = 1 if (dirf & 0x20) else 0
+        self.dirSwitch.blockSignals(True)
+        self.dirSwitch.setValue(dir_val)
+        self.dirSwitch.blockSignals(False)
+
+        # F0
+        self.btnF0.blockSignals(True)
+        self.btnF0.setChecked(bool(dirf & 0x10))
+        self.btnF0.blockSignals(False)
+
+        # F1..F4 from DIRF bits 0..3
+        for i in range(4):
+            self.fnButtons[i].blockSignals(True)
+            self.fnButtons[i].setChecked(bool(dirf & (1 << i)))
+            self.fnButtons[i].blockSignals(False)
+
+        # F5..F8 from SND low nibble
+        for i in range(4):
+            self.fnButtons[4 + i].blockSignals(True)
+            self.fnButtons[4 + i].setChecked(bool(snd & (1 << i)))
+            self.fnButtons[4 + i].blockSignals(False)
+
+        # F9..F12 from SND high nibble
+        upper = (snd >> 4) & 0x0F
+        for i in range(4):
+            self.fnButtons[8 + i].blockSignals(True)
+            self.fnButtons[8 + i].setChecked(bool(upper & (1 << i)))
+            self.fnButtons[8 + i].blockSignals(False)
+
+    def onSpeedChanged(self, value):
+        self.speedDisplay.setText(str(value))
+        print( 'hello bro ')
+
+        self.speedDisplay.setText(str(value))
+        self.currentSlot = 5
+        if not isinstance(self.currentSlot, int):
+            return
+
+        speed = value & 0x7F
+
+        chk = (0xA0 ^ self.currentSlot ^ speed ^ 0xFF) & 0xFF
+        self.LocoNet.send(bytes([
+            0xA0,
+            self.currentSlot,
+            speed,
+            chk
+        ]))
+
+
+
+    def onDirectionChanged(self, checked):
+        if self.currentSlot is None:
+            return
+        self.sendF0F4DirPacket()
+
+
+    def onF0Toggled(self, checked):
+        if self.currentSlot is None:
+            return
+        self.sendF0F4DirPacket()
+
+    # ----- helpers for function packets ---------------------------------
+    def sendF0F4DirPacket(self):
+        if self.currentSlot is None:
+            return
+        dir_val = 1 if self.btnDir.isChecked() else 0
+        f0 = self.btnF0.isChecked()
+        f1 = self.fnButtons[0].isChecked()
+        f2 = self.fnButtons[1].isChecked()
+        f3 = self.fnButtons[2].isChecked()
+        f4 = self.fnButtons[3].isChecked()
+
+        dirf = 0
+        if dir_val:
+            dirf |= 0x20
+        if f0:
+            dirf |= (1 << 4)
+        if f1:
+            dirf |= (1 << 0)
+        if f2:
+            dirf |= (1 << 1)
+        if f3:
+            dirf |= (1 << 2)
+        if f4:
+            dirf |= (1 << 3)
+
+        self.LocoNet.sendLocoDirF0F4(self.currentSlot, dirf)
+
+    def sendF5F8Packet(self):
+        if self.currentSlot is None:
+            return
+
+        snd = 0
+        if self.fnButtons[4].isChecked(): snd |= (1 << 0)  # F5
+        if self.fnButtons[5].isChecked(): snd |= (1 << 1)  # F6
+        if self.fnButtons[6].isChecked(): snd |= (1 << 2)  # F7
+        if self.fnButtons[7].isChecked(): snd |= (1 << 3)  # F8
+
+        self.LocoNet.sendLocoF5F8(self.currentSlot, snd)
+
+    def sendF9F12Packet(self):
+        if self.currentSlot is None:
+            return
+
+        f = 0
+        if self.fnButtons[8].isChecked():  f |= (1 << 0)  # F9
+        if self.fnButtons[9].isChecked():  f |= (1 << 1)  # F10
+        if self.fnButtons[10].isChecked(): f |= (1 << 2)  # F11
+        if self.fnButtons[11].isChecked(): f |= (1 << 3)  # F12
+
+        self.LocoNet.sendLocoF9F12(self.currentSlot, f)
+
+            
+    def onFnButtonToggled(self, n: int, checked: bool):
+        if self.currentSlot is None:
+            return
+
+        if 1 <= n <= 4:
+            self.sendF0F4DirPacket()
+        elif 5 <= n <= 8:
+            self.sendF5F8Packet()
+        elif 9 <= n <= 12:
+            self.sendF9F12Packet()
+        elif n >= 13:
+            self.sendExpandedFunctions()
+
+
 
 
     # ---------------------------------------------------------
