@@ -52,6 +52,12 @@
     6x analog  A-E
     3x analog  A-C
     2x analog  A-B 
+
+    wat ook leuk is, als je 1 digitale throttle heb en een setje analoge, zodat je ook nog kan dispatchen van de ene naar de ander
+
+    Also: Upon booting, the centrale could voluntair its settings to a computer program. Or send all with one specific unique command
+
+    Throttles can be simulated by spoofing ADC samples
     
 
     We need settings for:
@@ -111,11 +117,11 @@ void setup()
 
 void loop()
 {
-    // panel.update() ;
-    // dcc.process() ;
+    panel.update() ;
+    dcc.process() ;
     updateSlots() ;
-    // DCCsignals() ;
-    // s88.update() ;
+    DCCsignals() ;
+    s88.update() ;
     locoNetUsb.update() ;
 }
 
@@ -258,6 +264,20 @@ void notifyDccFunc(uint16_t Addr, DCC_ADDR_TYPE AddrType, FN_GROUP FuncGrp, uint
     }
 }
 
+// LOCONET PROGRAM COMMANDS
+void notifyCvWrite( uint16_t CV, uint8_t value )
+{
+    writeCv( CV, value ) ;
+}
+
+void notifyPomWrite( uint16_t address, uint16_t CV, uint8_t value )
+{
+    uint8_t slot = getSlot( address ) ;
+    writePom( slot, CV, value ) ;
+}
+
+
+
 // LOCONET CONFIGURATION COMMANDS
                     //          2        3         4          5
 // <OPC_PEER_XFER> <8> <1>  <AACCCCC> <xxxxBTT> <SSSSSSS> <xOOOOOO> <CHECKSUM>    S88 address, module count,  booster/sniffer Throttle mode, short time, OC time
@@ -374,59 +394,59 @@ void getPanelButton( uint8_t panelButtonID )
 
 void getRoute( uint8_t routeID )
 {
-    lnMessage msg;
+    lnMessage msg ;
 
-    msg.OPCODE = OPC_PEER_XFER;
-    msg.payload[1] = 7;        // GET route
-    msg.payload[2] = routeID;
+    msg.OPCODE = OPC_PEER_XFER ;
+    msg.payload[1] = 7 ;        // GET route
+    msg.payload[2] = routeID ;
 
     Route r;
-    uint16_t eeAddress = route_eeAddress + routeID * sizeof(Route);
+    uint16_t eeAddress = route_eeAddress + routeID * sizeof(Route) ;
     // i2cEeprom.get( eeAddress, r );
 
-    msg.payload[3] = r.firstButton;
-    msg.payload[4] = r.secondButton;
+    msg.payload[3] = r.firstButton ;
+    msg.payload[4] = r.secondButton ;
 
     uint8_t p = 5;
 
     for(int i = 0; i < pointsPerRoute; i++)
     {
-        uint8_t hi6 = (r.address[i] >> 7) & 0x3F;
-        uint8_t lo7 =  r.address[i]       & 0x7F;
+        uint8_t hi6 = (r.address[i] >> 7) & 0x3F ;
+        uint8_t lo7 =  r.address[i]       & 0x7F ;
 
-        msg.payload[p++] = (r.state[i] << 6) | hi6;
-        msg.payload[p++] = lo7;
+        msg.payload[p++] = (r.state[i] << 6) | hi6 ;
+        msg.payload[p++] = lo7 ;
     }
 
-    msg.payload[0] = p;
+    msg.payload[0] = p ;
 
-    locoNetUsb.sendMessage( &msg, msg.payload[0] + 2 );
+    locoNetUsb.sendMessage( &msg, msg.payload[0] + 2 ) ;
 }
 
 void getThrottle( uint8_t throttleID )
 {
-    lnMessage msg;
+    lnMessage msg ;
 
-    msg.OPCODE = OPC_PEER_XFER;
-    msg.payload[1] = 8;          // GET throttle
-    msg.payload[2] = throttleID;
+    msg.OPCODE = OPC_PEER_XFER ;
+    msg.payload[1] = 8 ;          // GET throttle
+    msg.payload[2] = throttleID ;
 
-    uint16_t eeAddress = throttle_eeAddress + throttleID * 20;
+    uint16_t eeAddress = throttle_eeAddress + throttleID * 20 ;
 
-    uint16_t array[10];
+    uint16_t array[10] ;
     // i2cEeprom.get( eeAddress, array );
 
-    uint8_t p = 3;
+    uint8_t p = 3 ;
 
     for(int i=0; i<10; i++)
     {
         uint16_t v = array[i];
 
-        uint8_t lo7 =  v        & 0x7F;
-        uint8_t hi7 = (v >> 7)  & 0x7F;
+        uint8_t lo7 =  v        & 0x7F ;
+        uint8_t hi7 = (v >> 7)  & 0x7F ;
 
-        msg.payload[p++] = lo7;
-        msg.payload[p++] = hi7;
+        msg.payload[p++] = lo7 ;
+        msg.payload[p++] = hi7 ;
     }
 
     msg.payload[0] = p;

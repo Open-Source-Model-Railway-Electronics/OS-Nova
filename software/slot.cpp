@@ -67,7 +67,7 @@ void updateSlots()
 uint8 getFreeSlot() // if new slot is needed, find a slot with 0 priority and otherwise pick the slot with the lowest priority
 {
     uint8 lowestPrio =  40 ;
-    uint8 slotToUse  =   0 ;
+    uint8 slotToUse  =   1 ;
 
     for( int i = 1 ; i < maxSlot ; i++ ) // we do not use slot 0
     {

@@ -58,14 +58,24 @@ uint8_t LocoNetUSB::update()
     return 0 ;
 }
 
+void LocoNetUSB::acceptProgrammingCommand()
+{
+    lnMessage   message2send ;
+    uint8_t     len = 0 ;
+
+    message2send.OPCODE = OPC_LONG_ACK ;
+    message2send.payload[len++] = OPC_WR_SL_DATA & 0x7F ;
+    message2send.payload[len++] = 0x01 ;    // meaning -> program task accepted.
+
+    sendMessage( &message2send, len ) ;
+}
+
 void LocoNetUSB::processOpcode()
 {
     switch( message.OPCODE )
-    {
-        // ----------------------------------------------------
+    {   // ----------------------------------------------------
         //   1) BASIC ACCESSORY COMMANDS  
         // ----------------------------------------------------
-
         case OPC_SW_REQ:            processSwitchRequest();     return 1 ; 
         case OPC_IMM_PACKET:        processDccExtRequest() ;    return 1 ; 
         // ----------------------------------------------------
@@ -96,17 +106,49 @@ void LocoNetUSB::processOpcode()
     return 0 ; // No OPCODE recognized
 }
 
+void LocoNetUSB::processProgrammingCommand()
+{
+    uint8_t PCMD  = message.payload[1];
+    uint8_t CVH   = message.payload[5];
+    uint8_t CVL   = message.payload[6];
+    uint8_t DATA7 = message.payload[7];
+
+    uint16_t CV =
+        (  (CVH >> 5) & 0x01) << 9   // CV9
+        | ((CVH >> 4) & 0x01) << 8   // CV8
+        | ((CVH >> 0) & 0x01) << 7   // CV7
+        |  (CVL & 0x7F);             // CV6..0
+
+    uint16_t value =
+        ((CVH >> 1) & 0x01) << 7     // D7 (MSB)
+        |  (DATA7 & 0x7F);           // D6..0
+
+    if( PCMD & 0x04 )               // POM WRITE
+    {
+        uint16_t address = ((uint16_t)message.payload[2] << 7) | (uint16_t)message.payload[3] ; // HOPSA & LOPSA
+        notifyPomWrite( address, CV, value );
+        return ;
+    }
+
+    notifyCvWrite( CV, value ) ;  // Service mode CV WRITE
+    acceptProgrammingCommand() ;
+}
+
 void LocoNetUSB::processWriteSlotData()
 {
-    Serial.println(F("processWriteSlotData"));
-
     uint8_t slotNr = message.payload[0];
+    if( slotNr == 0x7C )                // programming
+    {
+        processProgrammingCommand() ;
+        return;
+    }
+    // normal processing
     Slot *s = &slot[slotNr];
 
     s->stat1 = message.payload[1];
     s->address = 
-        (uint16_t)(message.payload[2] & 0x7F) |
-        ((uint16_t)(message.payload[3] & 0x7F) << 7);
+        ( uint16_t)( message.payload[2] & 0x7F ) |
+        ((uint16_t)( message.payload[3] & 0x7F ) << 7 ) ;
 
     s->speed = message.payload[4] & 0x7F;
 
@@ -186,7 +228,7 @@ void LocoNetUSB::readSlotData( uint8_t _slot )
     Slot *s = &slot[_slot];
 
     uint8_t len = 0 ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_SL_RD_DATA ;   // 0xE7 (READ)
 
 
@@ -197,7 +239,7 @@ void LocoNetUSB::readSlotDataExp( uint8_t _slot )
     Slot *s = &slot[_slot];
 
     uint8_t len = 0 ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_SL_RD_DATA_EXP ;   // 0xE6 (READ)
 
     message2send.payload[ len++ ] = 0x15 ;       // length = 21 bytes
@@ -363,7 +405,7 @@ void LocoNetUSB::sendAccesory( uint16_t _address, uint8_t state ) // 4 byte mess
     uint8_t sw2 = (_address >> 7) & 0x0F;   // A7..A10 → bits 3..0
     if( state ) sw2 |= 0b00000100 ;
     sw2 |= 0b00000010 ;  // Always send an ON pulse (standard)
-
+    lnMessage message2send ;
     uint8_t len = 0 ;
     message2send.OPCODE = OPC_SW_REQ ;
     message2send.payload[ len++ ] = sw1 ;
@@ -377,7 +419,7 @@ void LocoNetUSB::sendSensor( uint16_t _address, uint8_t state )  // 4 byte messa
     uint8_t sn1 = _address & 0x7F ;         // SN1: A0..A6
     uint8_t sn2 = (_address >> 7) & 0x0F ;  // SN2: A7..A10 in bits 3..0
     if (state) sn2 |= 0x20;   // bit5 = occupied / active
-
+    lnMessage message2send ;
     uint8_t len = 0 ;
     message2send.OPCODE = OPC_INPUT_REP ;
     message2send.payload[ len++ ] = sn1 ;
@@ -388,7 +430,7 @@ void LocoNetUSB::sendSensor( uint16_t _address, uint8_t state )  // 4 byte messa
 void LocoNetUSB::sendLocoSpeed( uint8_t mySlot )
 {
     uint8_t len = 0 ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_LOCO_SPD ;
     message2send.payload[ len++ ] = mySlot ;
     message2send.payload[ len++ ] = slot[mySlot].speed ;
@@ -401,7 +443,7 @@ void LocoNetUSB::sendLocoDirF0toF4( uint8_t mySlot )
     uint8_t len = 0 ;
 
     uint8_t dirf = ( slot[mySlot].dir ? 0x20 : 0x00 ) | ( slot[mySlot].F0_F4 & 0x0F ) ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_LOCO_DIRF ;
     message2send.payload[ len++ ] = mySlot ;
     message2send.payload[ len++ ] = dirf ;
@@ -412,7 +454,7 @@ void LocoNetUSB::sendLocoDirF0toF4( uint8_t mySlot )
 void LocoNetUSB::sendLocoF5toF8( uint8_t mySlot )
 {
     uint8_t len = 0 ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_LOCO_SND ;
     message2send.payload[ len++ ] = mySlot ;
     message2send.payload[ len++ ] = slot[mySlot].F5_F8  ;
@@ -423,7 +465,7 @@ void LocoNetUSB::sendLocoF5toF8( uint8_t mySlot )
 void LocoNetUSB::sendLocoF9toF12( uint8_t mySlot )
 {
     uint8_t len = 0 ;
-
+    lnMessage message2send ;
     message2send.OPCODE = OPC_LOCO_F9_F12 ;
     message2send.payload[ len++ ] = mySlot ;
     message2send.payload[ len++ ] = slot[mySlot].F9_F12 ;
@@ -443,7 +485,6 @@ void LocoNetUSB::processLocoSpeed()
     // OPC_LOCO_SPD: <A0><SLOT#><SPD><CHK>
     uint8_t slot  = message.payload[0];
     uint8_t speed = message.payload[1] & 0x7F;   // msb moet 0 zijn, maar masken is veilig
-    Serial.println(F("loco speed"));
     notifyLnetLocoSpeed( slot, speed );
 }
 
@@ -463,8 +504,6 @@ void LocoNetUSB::processLocoDirF0toF4()
     notifyLnetLocoFunction( slot,  3, (dirf & (1u << 2)) ? 1u : 0u ); // F3
     notifyLnetLocoFunction( slot,  2, (dirf & (1u << 1)) ? 1u : 0u ); // F2
     notifyLnetLocoFunction( slot,  1, (dirf & (1u << 0)) ? 1u : 0u ); // F1
-
-    Serial.println(F("processLocoDirF0toF4d"));
 }
 
 void LocoNetUSB::processLocoF5toF8()
@@ -478,8 +517,6 @@ void LocoNetUSB::processLocoF5toF8()
     notifyLnetLocoFunction( slot,  7, (snd & (1u << 2)) ? 1u : 0u ); // F7
     notifyLnetLocoFunction( slot,  6, (snd & (1u << 1)) ? 1u : 0u ); // F6
     notifyLnetLocoFunction( slot,  5, (snd & (1u << 0)) ? 1u : 0u ); // F5
-
-    Serial.println(F("processLocoF5toF8"));
 }
 
 void LocoNetUSB::processLocoF9toF12()
@@ -494,7 +531,7 @@ void LocoNetUSB::processLocoF9toF12()
     notifyLnetLocoFunction( slot, 12, (f912 & (1u << 3)) ? 1u : 0u ); // F12
     notifyLnetLocoFunction( slot, 11, (f912 & (1u << 2)) ? 1u : 0u ); // F11
     notifyLnetLocoFunction( slot, 10, (f912 & (1u << 1)) ? 1u : 0u ); // F10
-    notifyLnetLocoFunction( slot,  9, (f912 & (1u << 0)) ? 1u : 0u ); // F9
+    notifyLnetLocoFunction( slot,  9, (f912 & (1u << 0)) ? 1u : 0u ); //  F9
 }
 
 void LocoNetUSB::processLocoF13toF19()
@@ -516,8 +553,6 @@ void LocoNetUSB::processLocoF13toF19()
     notifyLnetLocoFunction( slot, 15, (fn & (1u << 2)) ? 1u : 0u ); // F15
     notifyLnetLocoFunction( slot, 14, (fn & (1u << 1)) ? 1u : 0u ); // F14
     notifyLnetLocoFunction( slot, 13, (fn & (1u << 0)) ? 1u : 0u ); // F13
-
-    Serial.println(F("processLocoF13toF19"));
 }
 
 

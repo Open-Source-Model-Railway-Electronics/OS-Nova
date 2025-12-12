@@ -14,13 +14,15 @@
 #define OPC_LOCO_F9_F12       0xA3    // F9..F12
 #define OPC_LOCO_F13_F19      0xA4    // F13..F19 
 
-#define OPC_WR_SL_DATA_EXP      0xEE 
 #define OPC_SL_RD_DATA_EXP      0xE6 
-#define OPC_RQ_SL_DATA          0xBB
+#define OPC_WR_SL_DATA_EXP      0xEE 
 #define OPC_SL_RD_DATA          0xE7
 #define OPC_WR_SL_DATA          0xEF
+
 #define OPC_MOVE_SLOTS          0xBA
-#define OPC_SLOT_STAT1          0xB4
+#define OPC_RQ_SL_DATA          0xBB
+#define OPC_LONG_ACK            0xB4
+#define OPC_SLOT_STAT1          0xB5
 #define OPC_LOCO_ADR            0xBF
 #define OPC_IDLE                0x85
 
@@ -69,7 +71,7 @@ private:
     uint16_t    dispatchAddres ;
 
     lnMessage message ;
-    lnMessage message2send ;
+    //lnMessage message2send ;
 
     // Incomming commands are processed
     void processSwitchRequest() ;
@@ -92,25 +94,30 @@ private:
     void processLocoF13toF19() ;
 
     void processConfiguration() ;
+    void acceptProgrammingCommand() ;
+    void processProgrammingCommand() ;
 
 } ;
 
-extern uint8_t notifyLnetAccessory(    uint16_t address, uint8_t direction          ) __attribute__((weak)) ;
-extern uint8_t notifyLnetSensor(       uint16_t address, uint8_t state              ) __attribute__((weak)) ;
-extern uint8_t notifyLnetAccessoryExt( uint16_t address, uint8_t value              ) __attribute__((weak)) ;
+extern uint8_t notifyLnetAccessory(    uint16_t, uint8_t          ) __attribute__((weak)) ;
+extern uint8_t notifyLnetSensor(       uint16_t, uint8_t          ) __attribute__((weak)) ;
+extern uint8_t notifyLnetAccessoryExt( uint16_t, uint8_t          ) __attribute__((weak)) ;
 
-extern uint8_t notifyLnetLocoSpeed(     uint8_t slot,    uint8_t speed              ) __attribute__((weak)) ;
-extern uint8_t notifyLnetLocoDirection( uint8_t slot,    uint8_t dir                ) __attribute__((weak)) ;
-extern uint8_t notifyLnetLocoFunction(  uint8_t slot,    uint8_t fn, uint8_t value  ) __attribute__((weak)) ;
+extern uint8_t notifyLnetLocoSpeed(     uint8_t, uint8_t          ) __attribute__((weak)) ;
+extern uint8_t notifyLnetLocoDirection( uint8_t, uint8_t          ) __attribute__((weak)) ;
+extern uint8_t notifyLnetLocoFunction(  uint8_t, uint8_t, uint8_t ) __attribute__((weak)) ;
 
 extern void setConfiguration( lnMessage* ) __attribute__((weak)) ;
 extern void setPanelButton(   lnMessage* ) __attribute__((weak)) ;
 extern void setRoute(         lnMessage* ) __attribute__((weak)) ;
 extern void setThrottle(      lnMessage* ) __attribute__((weak)) ;
 
-extern void getConfiguration() __attribute__((weak));
-extern void getPanelButton  ( uint8_t ) __attribute__((weak)); // button ID. NOTE I may want to send ALL buttons in one massive blocking loop :-D
-extern void getRoute        ( uint8_t ) __attribute__((weak)); // route ID
-extern void getThrottle     ( uint8_t ) __attribute__((weak)); // throttle ID
+extern void getConfiguration(  void   )    __attribute__((weak));
+extern void getPanelButton  ( uint8_t )    __attribute__((weak)); // button ID. NOTE I may want to send ALL buttons in one massive blocking loop :-D
+extern void getRoute        ( uint8_t )    __attribute__((weak)); // route ID
+extern void getThrottle     ( uint8_t )    __attribute__((weak)); // throttle ID
+
+extern void notifyCvWrite (           uint16_t, uint8_t ) __attribute__((weak));
+extern void notifyPomWrite( uint16_t, uint16_t, uint8_t ) __attribute__((weak));
 
 extern LocoNetUSB locoNetUsb ;

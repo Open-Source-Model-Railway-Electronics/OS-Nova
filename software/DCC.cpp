@@ -96,7 +96,7 @@ const int   new_F29_F36         = 0x40 ;
 
 enum packetTypes 
 {
-    speed_packet ,
+    speedPacket ,
     F0_F4_packet ,
     F5_F8_packet ,
     F9_F12_packet ,
@@ -157,7 +157,7 @@ struct
 } buffer[2] ;
 
 uint8   *ptr ;
-uint8   packetType = speed_packet, sendPacket_state = 0, Bit ;    // for DCC packets
+uint8   packetType = speedPacket, sendPacket_state = 0, Bit ;    // for DCC packets
 uint8   newLocoInstructionFlag, state = assemblePacket ;
 uint8   newLocoInstructionCounter ;
 uint8   currentSlot ;
@@ -369,7 +369,7 @@ StateFunction( selectNewPacketType )
     if( ++ currentSlot >= maxSlot ) // loop through all slots.
     {      currentSlot = 0 ;
 
-        // ALL ADDRESSES CYCLED, PICK NEXT PACKET TYPE
+        // ALL ADDRESSES AND FUNCTIONS CYCLED, PICK NEXT PACKET TYPE
         if( ++ packetType > F29_F36_packet )
         { 
             packetType = 0 ;
@@ -437,7 +437,7 @@ StateFunction( assemblePacket )
     }
 
     /******    SPEED    *******/ 
-    case speed_packet:
+    case speedPacket:
         // for 128 steps  
         buffer[toFill].data[index++] = _128_STEPS ;
         buffer[toFill].data[index++] = slot[currentSlot].speed ;
