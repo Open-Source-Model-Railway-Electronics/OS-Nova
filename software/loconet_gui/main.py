@@ -588,8 +588,8 @@ class MainWindow(QMainWindow):
         except ValueError:
             requested = None
 
-        if requested is None or requested != addr:
-            return
+        if requested is not None and requested == addr:
+            self.currentSlot = slot
 
         # auto acquire on IDLE/COMMON once
         if self.acquirePending and status in ("IDLE", "COMMON"):
@@ -606,9 +606,9 @@ class MainWindow(QMainWindow):
         self.speedDisplay.setText(str(speed))
 
         dir_val = 1 if (dirf & 0x20) else 0
-        self.dirSwitch.blockSignals(True)
-        self.dirSwitch.setValue(dir_val)
-        self.dirSwitch.blockSignals(False)
+        self.btnDir.blockSignals(True)
+        self.btnDir.setChecked(bool(dir_val))
+        self.btnDir.blockSignals(False)
 
         # F0
         self.btnF0.blockSignals(True)
@@ -639,7 +639,6 @@ class MainWindow(QMainWindow):
         print( 'hello bro ')
 
         self.speedDisplay.setText(str(value))
-        self.currentSlot = 5
         if not isinstance(self.currentSlot, int):
             return
 

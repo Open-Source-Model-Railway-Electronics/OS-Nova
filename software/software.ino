@@ -315,13 +315,13 @@ void setRoute( lnMessage *mess )
 
     Route route ;
 
-    route.firstButton  = mess->payload[3] ;
-    route.secondButton = mess->payload[4] ;
+    route.button.first  = mess->payload[3] ;
+    route.button.second = mess->payload[4] ;
 
-    for ( int point = 0 ; point < pointsPerRoute ; point )
+    for ( int idx = 0 ; idx < pointsPerRoute ; idx )
     {
-       route.address[point] = (((uint16_t)mess->payload[5+(point*2)] & 0x3F)<<7) | (uint16_t)mess->payload[6+(point*2)] ;
-       route.state[point]   = mess->payload[5+(point*2)] >> 6 ;
+       route.point[idx].address = (((uint16_t)mess->payload[5+(idx*2)] & 0x3F)<<7) | (uint16_t)mess->payload[6+(idx*2)] ;
+       route.point[idx].state   = mess->payload[5+(idx*2)] >> 6 ;
     }
     //i2cEeprom.put( eeAddress, route ) ;
 }
@@ -404,17 +404,17 @@ void getRoute( uint8_t routeID )
     uint16_t eeAddress = route_eeAddress + routeID * sizeof(Route) ;
     // i2cEeprom.get( eeAddress, r );
 
-    msg.payload[3] = r.firstButton ;
-    msg.payload[4] = r.secondButton ;
+    msg.payload[3] = r.button.first ;
+    msg.payload[4] = r.button.second ;
 
     uint8_t p = 5;
 
     for(int i = 0; i < pointsPerRoute; i++)
     {
-        uint8_t hi6 = (r.address[i] >> 7) & 0x3F ;
-        uint8_t lo7 =  r.address[i]       & 0x7F ;
+        uint8_t hi6 = (r.point[i].address >> 7) & 0x3F ;
+        uint8_t lo7 =  r.point[i].address       & 0x7F ;
 
-        msg.payload[p++] = (r.state[i] << 6) | hi6 ;
+        msg.payload[p++] = (r.point[i].state << 6) | hi6 ;
         msg.payload[p++] = lo7 ;
     }
 
@@ -472,6 +472,3 @@ void notifyPanelSetOccupancy( uint16_t address, uint8_t state )
 {
     locoNetUsb.sendSensor( address, state ) ;
 }
-
-
-

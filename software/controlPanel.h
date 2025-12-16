@@ -19,7 +19,7 @@ const int maxPanelModules   = 16  ;  // 32 times 8 makes 256 buttons,
 const int switchesPerModule = 8 ;
 const int maxIO             = maxPanelModules * switchesPerModule ;
 const int pointsPerRoute    = 12 ;
-
+const int nRoutes           = 52 ; // TO DETERMEN, 2 is plain random
 
 enum
 {
@@ -28,14 +28,31 @@ enum
     RouteBtn     ,
 } ;
 
-const int noButton = 0x7F ;
+const int noButton = 0xFF ;
+
+
+typedef struct
+{
+    uint8_t first ;
+    uint8_t second ;
+} ButtonPair ;
+
 typedef struct Routes 
 {
-    uint8_t  firstButton ;
-    uint8_t  secondButton ; 
-    uint16_t address[pointsPerRoute] ;
-    uint8_t  state[pointsPerRoute] ;
-} Route;
+    ButtonPair button ;
+
+    struct 
+    {
+        uint16_t address : 14 ;
+        uint16_t state   :  1 ;
+        uint16_t inUse   :  1 ;
+    } point [pointsPerRoute] ;
+} Route; 
+
+// usage: route.button.first
+//        route.button.second
+//        route.point[i].address
+//        route.point[i].state
 
 // Route route[pointsPerRoute] ;  // routes are not yet implemented. Will be stored in I2C EEPROM.
 
@@ -62,6 +79,12 @@ public:
 private:
     uint8_t nModules ; 
     Timer   timer ;
+    Route   route2set ;
+    
+    uint8_t pointIndex ;
+    uint8_t setRoute      : 1 ;
+    uint8_t updateAllowed : 1 ; // will be set extern evenutally via S88 routine, to be implemented.
+    uint8_t routeState    : 3 ;
 
     uint8_t latch ;
     uint8_t clock ;
@@ -69,12 +92,12 @@ private:
     uint8_t inNext ;
 
     uint8_t firstButton, secondButton ;
+    uint8_t routeIndex ;
 
-    IOunit IO[maxIO] ;
-    bool updateAllowed ; // will be set extern evenutally via S88 routine, to be implemented.
+    IOunit  IO[maxIO] ;
 
-    void routeManager() ;
-    void sendRouteButton( uint8_t ID, uint8_t state ) ;
+    void    routeManager() ;
+    void    sendRouteButton( uint8_t ID, uint8_t state ) ;
 } ;
 
 extern void notifyPanelSetOccupancy( uint16_t address, uint8_t state ) __attribute__((weak)); 

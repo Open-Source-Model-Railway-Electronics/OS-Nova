@@ -29,58 +29,68 @@
     The function buttons: DIRECTION, F0,  F1 <> F8 (10 buttons)
 
 */
-const int REVERSE  =    1 ; 
-const int FORWARD  =    0 ; 
-const int maxAccel =   23 ; //  3 second for  fastest acceleration
-const int minAccel =   79 ; // 10 seconds for slowest acceleration
-const int adcMin   =  204 ; // 1V ADC count
-const int adcMax   = 1023 ; // 5V ADC count
-const int noADC    =   10 ; // disconnected, discard throttle.
-const int marge    =   50 ; // dead range
-const int minSpeed =    0 ;
-const int maxSpeed =  127 ;
+const int       REVERSE  =    1 ; 
+const int       FORWARD  =    0 ; 
+const int       maxAccel =   23 ; //  3 second for  fastest acceleration
+const int       minAccel =   79 ; // 10 seconds for slowest acceleration
+const int       adcMin   =  204 ; // 1V ADC count
+const int       adcMax   = 1023 ; // 5V ADC count
+const int       noADC    =   10 ; // disconnected, discard throttle.
+const int       marge    =   50 ; // dead range
+const int       minSpeed =    0 ;
+const int       maxSpeed =  127 ;
+
 
 const int throttle_eeAddress = 0x7000 ;  // 4096 bytes reserved
 
-enum speedModes
-{
-    speed_accel,
-    throttle_brake,
-} ;
-
+typedef union {
+    uint32_t raw ;
+    struct {
+        uint8_t  throttleLevel ;
+        uint8_t  brakeLevel ;
+        uint16_t functions ;
+    } f ;
+} CommandBits ;
 
 
 class Throttle
 {
 public:
-    void begin( uint8_t pot1, uint8_t pot2, uint8_t pot3, uint8_t _buttons ) ; 
+    void begin( uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t  ) ;
     void update() ;
 
 private:
-    uint8_t     mySlot ; 
+    CommandBits receivedBits ;
+    CommandBits currentBits ;
 
-    uint8_t     speedMode       : 1 ;
-    uint8_t     hasFunctions    : 1 ;
-    uint8_t     neutralMiddle   : 1 ;
-    uint32_t    acceleration ;
-    uint32_t    prevTime ;
-    uint32_t    prevButtonTime ;
-    uint8_t     accelerating    : 1 ;
-    uint16_t    functions       : 9 ; //F0 - F8
-    uint8_t     deccelerating   : 1 ;
-    uint8_t     mode ;
+    uint16_t    bitCounter      : 6 ;
+    uint16_t    receiving       : 1 ;
+    uint16_t    hasFunctions    : 1 ;
+    uint16_t    hasBrake        : 1 ;
+    uint16_t    isDigital       : 1 ;
+    uint16_t    accelerating    : 1 ;
+    uint16_t    deccelerating   : 1 ;
+    uint16_t    oldSample       : 1 ;
+    uint16_t    index           : 3 ;
+
+    uint16_t    speed           : 7 ;
+    uint16_t    dir             : 1 ;
+    uint16_t    oldSpeed        : 7 ;
+    uint16_t    oldDir          : 1 ;
+
+    uint16_t    mySlot          : 5 ;
+    uint16_t    activeFunction  : 4 ;
+    uint16_t    reserved0       : 7 ;
+
+    uint16_t    lastMicros ;       // due to short interval using 16 bit has been APPROVED
+    uint16_t    lastSampleTime ;
+    uint16_t    prevButtonTime ;
+
     uint8_t     pot1 ;
     uint8_t     pot2 ;
     uint8_t     pot3 ;
-    uint8_t     speed           : 7 ; // 0 - 127
-    uint8_t     oldSpeed        : 7 ; // 0 - 127
-    uint8_t     dir             : 1 ; // 1
-    uint8_t     oldDir          : 1 ; // 1
-    uint8_t     nPots           : 2 ; // 1-3
-    uint16_t    address ;       // current address, comes from EEPROM
-    uint8_t     index ;
 
-    uint8_t     state ;
+    uint16_t    address ;
 
     Timer       timer ;
     Timer       funcTimer ;
@@ -88,9 +98,11 @@ private:
     Trigger     trLong ;
     Trigger     trShort ;
 
-    void        throttleBrakeControl() ;
+    void        updateSpeed() ;
+    void        processDigitalSignal() ;
+    void        processAnalogSignal() ;
     void        processFunctions() ;
-    void        singlePotControl() ;
+    void        dispatchAddress( uint8_t slot ) ;
     void        acquireAddress( uint16_t acquireAddress) ;
 } ;
 

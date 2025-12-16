@@ -12,6 +12,8 @@
 
 */
 
+
+
 void ControlPanel::begin( uint8_t clockPin, uint8_t latchPin, uint8_t dataInPin, uint8_t dataOutPin )
 {
     latch   = latchPin ;
@@ -19,7 +21,7 @@ void ControlPanel::begin( uint8_t clockPin, uint8_t latchPin, uint8_t dataInPin,
     outNext = dataOutPin ;
     inNext  = dataInPin ;
 
-    timer.set( TIMER_ON, 20 ) ;
+    timer.set( TIMER_BLEEP, 333 ) ;
     for( int i = 0 ; i < maxIO ; i ++ )
     {
         IO[i].inPrev = 0 ;
@@ -120,9 +122,76 @@ void ControlPanel::processIO()
 
 void ControlPanel::sendRouteButton( uint8_t ID, uint8_t state )
 {
+    if( setRoute == 1 ) return ;
+
+    if( state == 1 )
+    {
+        if( firstButton == noButton ) { firstButton  = ID ; }
+        else                          { secondButton = ID ; }
+    }
+    else
+    {
+        if( secondButton == noButton ) {  firstButton = noButton ; } // first button is released before a second button is pressed
+    }
 }
+
+enum
+{
+    resetButtons ,
+    getButtons ,
+    getIndex ,
+    layPoints ,
+} ;
 
 void ControlPanel::routeManager() // find the route buttons and fetch the correct array from i2c eeprom.
 {
+    uint16_t eeAddress ;
+    switch( routeState )
+    {
+    case resetButtons :
+        firstButton  = noButton ;
+        secondButton = noButton ;
+        setRoute     = 0 ;
+        routeState   = getButtons ;
+        break ; 
+    
+    case getButtons:
+        if( firstButton != noButton && secondButton != noButton ) { routeState = getIndex ; }
+        break ;
 
+    case getIndex:
+        setRoute = 1 ; 
+        for( int i = 0 ; i < nRoutes ; i ++ )
+        {
+            eeAddress = route_eeAddress + ( i * sizeof( route2set ) ) ;
+            ButtonPair button ;
+
+            //i2cEeprom.get( eeAddress, button ) ;  // templated function, not yet implemented
+            if((  firstButton == button.first  && secondButton == button.second )  // order of first and second button pressed, is ambiguous
+            || (  firstButton == button.second && secondButton == button.first )) 
+            {
+                // i2cEeprom.get( eeAddress, route2set ) ; // load the remainder of the EEPROM, not yet implemented
+                pointIndex = 0 ;
+                routeState = layPoints ; 
+                return ;
+            }
+        }
+        // no route found
+        routeState = resetButtons ;
+        return ;
+
+    case layPoints:
+        if( timer.update() ) // true every 333ms
+        {
+            notifyPanelSetAccessory( route2set.point[pointIndex].address, route2set.point[pointIndex].state ) ;
+
+            if( route2set.point[pointIndex].inUse == 0   // if next point has been set -> reset
+            || ++ pointIndex == pointsPerRoute )                 // if last point has been set -> reset
+            {
+                routeState = resetButtons ;
+                return ;
+            }
+        }
+    }
 }
+
